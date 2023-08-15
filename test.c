@@ -6,7 +6,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-typedef unsigned int uint;
+typedef uint uint;
 
 void processInput(GLFWwindow *window)
 {
@@ -55,85 +55,91 @@ void normalize(vec3 *vertices)
     }
 }
 
-/* Done */
-vec3 *spline_vertices(size_t size, vec3 vertices[size], float width)
+typedef struct Mesh
 {
-    if (size < 2)
-    {
-        printf("error: must have at least two points to form a line\n");
-        exit(1);
-    }
-
-    vec3 *vertices_out = calloc(2 * size, sizeof(vec3));
-    for (size_t i = 0; i < size; ++i)
-    {
-        vec3 forward = sub(vertices[i + 1], vertices[i]);
-        vec3 z = {0, 0, 1};
-        vec3 dir1 = scalar_mul(width / 2, unit(cross(forward, z)));
-        vec3 dir2 = neg(dir1);
-        vertices_out[2 * i + 1] = add(dir1, vertices[i]);
-        vertices_out[2 * i] = add(dir2, vertices[i]);
-    }
-    return vertices_out;
-}
+    size_t num_vertices;
+    size_t num_indices;
+    vec3 *vertices;
+    uint *indices;
+} Mesh;
 
 /* Done */
-unsigned int *spline_indices(size_t size, vec3 vertices[size])
-{
-    if (size < 2)
-    {
-        printf("error: must have at least two points to form a line\n");
-        exit(1);
-    }
-
-    unsigned int *indices_out = calloc(6 * (size - 1), sizeof(unsigned int));
-    for (size_t i = 0; i < size - 1; ++i)
-    {
-        /* First Triangle */
-        indices_out[6 * i] = 2 * i;
-        indices_out[6 * i + 1] = 2 * i + 1;
-        indices_out[6 * i + 2] = 2 * i + 2;
-
-        /* Second Triangle */
-        indices_out[6 * i + 3] = 2 * i + 3;
-        indices_out[6 * i + 4] = 2 * i + 2;
-        indices_out[6 * i + 5] = 2 * i;
-    }
-    return indices_out;
-}
-
-float *linspace(float a, float b, size_t n)
+Mesh line(size_t n, vec3 vertices[n], float width)
 {
     if (n < 2)
     {
+        printf("error: must have at least two points to form a line\n");
         exit(1);
     }
-    float *out = calloc(n, sizeof(float));
-    float dt = (b - a) / (n - 1);
-    for (size_t i = 0; i < n; ++i)
+
+    float dx, dy, norm;
+    Mesh out;
+
+    // Allocate mesh
+    out.num_vertices = 2 * n;
+    out.num_indices = 6 * (n - 1);
+    out.vertices = calloc(out.num_vertices, sizeof(vec3));
+    out.indices = calloc(out.num_indices, sizeof(uint));
+
+    // Left boundary
+    dx = vertices[1].x - vertices[0].x;
+    dy = vertices[1].y - vertices[0].y;
+    norm = sqrt(dx * dx + dy * dy);
+    dx = width * dx / norm;
+    dy = width * dy / norm;
+    out.vertices[0].x = vertices[0].x - dy;
+    out.vertices[0].y = vertices[0].y + dx;
+    out.vertices[1].x = vertices[0].x + dy;
+    out.vertices[1].y = vertices[0].y - dx;
+
+    // Right boundary
+    dx = vertices[n - 1].x - vertices[n - 2].x;
+    dy = vertices[n - 1].y - vertices[n - 2].y;
+    norm = sqrt(dx * dx + dy * dy);
+    dx = width * dx / norm;
+    dy = width * dy / norm;
+    out.vertices[2 * n - 2].x = vertices[n - 1].x - dy;
+    out.vertices[2 * n - 2].y = vertices[n - 1].y + dx;
+    out.vertices[2 * n - 1].x = vertices[n - 1].x + dy;
+    out.vertices[2 * n - 1].y = vertices[n - 1].y - dx;
+
+    // Interior
+    for (size_t i = 1; i < n - 1; ++i)
     {
-        out[i] = a + dt * i;
+        dx = vertices[i + 1].x + vertices[i].x - vertices[i - 1].x;
+        dy = vertices[i + 1].y + vertices[i].y - vertices[i - 1].y;
+        norm = sqrt(dx * dx + dy * dy);
+        dx = width * dx / norm;
+        dy = width * dy / norm;
+        out.vertices[2 * i].x = vertices[i].x - dy;
+        out.vertices[2 * i].y = vertices[i].y + dx;
+        out.vertices[2 * i + 1].x = vertices[i].x + dy;
+        out.vertices[2 * i + 1].y = vertices[i].y - dx;
     }
+
+    // Indices
+    for (size_t i = 0; i < n - 1; ++i)
+    {
+        out.indices[6 * i] = 2 * i;
+        out.indices[6 * i + 1] = 2 * i + 1;
+        out.indices[6 * i + 2] = 2 * i + 2;
+        out.indices[6 * i + 3] = 2 * i + 3;
+        out.indices[6 * i + 4] = 2 * i + 2;
+        out.indices[6 * i + 5] = 2 * i + 1;
+    }
+
     return out;
 }
 
-vec3 *quad(size_t n)
+typedef struct GameObject
 {
-
-}
-
-typedef struct Renderer
-{
+    uint program, VAO, VBO, EBO;
     char *vertex_shader_source;
     char *fragment_shader_source;
-    vec3 *vertices;
-    size_t vertices_size; /* size in bytes, NOT number */
-    unsigned int *indices;
-    size_t indices_size; /* size in bytes, NOT number */
-    unsigned int program, VAO, VBO, EBO;
-} Renderer;
+    Mesh mesh;
+} GameObject;
 
-unsigned int setup_shader_program(const char *vertex_shader_source, const char *fragment_shader_source)
+uint setup_shader_program(const char *vertex_shader_source, const char *fragment_shader_source)
 {
     /*
      * 1. Compile vertex shader
@@ -189,7 +195,7 @@ unsigned int setup_shader_program(const char *vertex_shader_source, const char *
     return shader_program;
 }
 
-void setup(Renderer *rend, bool normalize)
+void setup(GameObject *rend)
 {
     /*
      * 1. Compile program
@@ -200,19 +206,20 @@ void setup(Renderer *rend, bool normalize)
      * 6. Unbind objects
      */
     rend->program = setup_shader_program(rend->vertex_shader_source, rend->fragment_shader_source);
+    printf("\x1b[34mHere\x1b[0m\n");
 
     glGenVertexArrays(1, &rend->VAO);
     glBindVertexArray(rend->VAO);
 
     glGenBuffers(1, &rend->VBO);
     glBindBuffer(GL_ARRAY_BUFFER, rend->VBO);
-    glBufferData(GL_ARRAY_BUFFER, rend->vertices_size, rend->vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, rend->mesh.num_vertices * sizeof(vec3), rend->mesh.vertices, GL_STATIC_DRAW);
 
     glGenBuffers(1, &rend->EBO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rend->EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, rend->indices_size, rend->indices, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, rend->mesh.num_indices * sizeof(uint), rend->mesh.indices, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, normalize, sizeof(vec3), (void*) 0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, sizeof(vec3), (void *)0);
     glEnableVertexAttribArray(0);
 
     glBindVertexArray(0);
@@ -220,20 +227,29 @@ void setup(Renderer *rend, bool normalize)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); /* Unbind EBO */
 }
 
-void draw(Renderer *rend)
+void draw(GameObject *rend)
 {
     glUseProgram(rend->program);
     glBindVertexArray(rend->VAO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rend->EBO);
-    glDrawElements(GL_TRIANGLES, rend->indices_size / 3, GL_UNSIGNED_INT, 0);
-    glUseProgram(0);
+
+    glDrawElements(GL_TRIANGLES, rend->mesh.num_indices, GL_UNSIGNED_INT, 0);
+
     glBindVertexArray(0);
+    glUseProgram(0);
 }
 
-void delete_gl_objects(Renderer *rend)
+void delete_Mesh(Mesh *mesh)
 {
-    free(rend->vertex_shader_source);
-    free(rend->fragment_shader_source);
+
+
+}
+
+void delete_GameObject(GameObject *rend)
+{
+
+
+    delete_Mesh(&rend->mesh);
     glDeleteProgram(rend->program);
     glDeleteVertexArrays(1, &rend->VAO);
     glDeleteBuffers(2, (uint[]){rend->VBO, rend->EBO});
@@ -278,6 +294,58 @@ GLFWwindow *init_glfw(GLFWframebuffersizefun framebuffer_size_callback)
     return window;
 }
 
+Mesh line_naive(size_t n, vec3 vertices[n], float width)
+{
+    Mesh out;
+
+    // Allocate
+    out.num_vertices = 2 * n;
+    out.num_indices = 6 * (n - 1);
+    out.vertices = calloc(out.num_vertices, sizeof(vec3));
+    out.indices = calloc(out.num_indices, sizeof(uint));
+
+    // Vertices
+    for (size_t i = 0; i < n; ++i)
+    {
+        printf("i: %i; x: %f\n", i, vertices[i].x);
+        out.vertices[2 * i].x = vertices[i].x;
+        out.vertices[2 * i + 1].x = vertices[i].x;
+        out.vertices[2 * i].y = vertices[i].y + width;
+        out.vertices[2 * i + 1].y = vertices[i].y - width;
+    }
+
+    // Indices
+    for (size_t i = 0; i < n - 1; ++i)
+    {
+        out.indices[6 * i] = 2 * i;
+        out.indices[6 * i + 1] = 2 * i + 1;
+        out.indices[6 * i + 2] = 2 * (i + 1);
+        out.indices[6 * i + 3] = 2 * (i + 1);
+        out.indices[6 * i + 4] = 2 * i + 1;
+        out.indices[6 * i + 5] = 2 * (i + 1) + 1;
+    }
+
+    return out;
+}
+
+Mesh diamond(vec3 point, float offset)
+{
+    Mesh out;
+    out.num_vertices = 4;
+    out.num_indices = 6;
+    out.vertices = calloc(out.num_vertices, sizeof(vec3));
+    out.indices = calloc(out.num_indices, sizeof(uint));
+
+    out.vertices[0] = (vec3) {point.x - offset, point.y, point.z};
+    out.vertices[1] = (vec3) {point.x, point.y - offset, point.z};
+    out.vertices[2] = (vec3) {point.x + offset, point.y, point.z};
+    out.vertices[3] = (vec3) {point.x, point.y + offset, point.z};
+
+    *out.indices = (uint) {0, 1, 2, 2, 3, 0};
+
+    return out;
+}
+
 int main(void)
 {
     /* Startup */
@@ -287,10 +355,11 @@ int main(void)
     const char vertex_shader_source[] =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;\n"
+        "\n"
         "void main()\n"
         "{\n"
         "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-        "}\n";
+        "}\n\0";
     const char fragment_shader_source[] =
         "#version 330 core\n"
         "out vec4 FragColor;\n"
@@ -298,95 +367,129 @@ int main(void)
         "void main()\n"
         "{\n"
         "    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
-        "}\n";
+        "}\n\0";
 
     /* Triangle */
-    Renderer triangle;
+    GameObject triangle;
     triangle.vertex_shader_source = strdup(vertex_shader_source);
     triangle.fragment_shader_source = strdup(fragment_shader_source);
-    triangle.vertices = (vec3[]){
-        {-0.5f, -0.5f, 0.0f},
-        { 0.5f, -0.5f, 0.0f},
-        { 0.0f,  0.5f, 0.0f},
+    triangle.mesh.vertices = (vec3[]){
+        {-0.5, -0.5, 0.0},
+        { 0.5, -0.5, 0.0},
+        { 0.0,  0.5, 0.0},
+        { 1.0,  1.0, 0.0},
     };
-    triangle.vertices_size = 3 * sizeof(vec3);
-    triangle.indices = (uint[]){0, 1, 2};
-    triangle.indices_size = 3 * sizeof(uint);
-    setup(&triangle, false);
+    triangle.mesh.num_vertices = 3;
+    triangle.mesh.num_indices = 6;
+    triangle.mesh.indices = (uint[]){
+        0, 1, 2, 1, 2, 3
+    };
+    setup(&triangle);
 
     /* Rect */
-    Renderer rect;
+    GameObject rect;
     rect.vertex_shader_source = strdup(vertex_shader_source);
     rect.fragment_shader_source = strdup(fragment_shader_source);
-    rect.vertices = (vec3[]){
-        // Lower left
-        {-1.0f, -1.0f, 0.0f},
-        // Upper left
-        {-1.0f, -0.9f, 0.0f},
-        // Lower right
-        {1.0f, -1.0f, 0.0f},
-        // Upper right
-        {1.0f, -0.9f, 0.0f},
+    rect.mesh.num_vertices = 4;
+    rect.mesh.vertices = (vec3[]){
+        { 0.5f,  0.5f, 0.0f},  // Top Right
+        { 0.5f, -0.5f, 0.0f},  // Bottom Right
+        {-0.5f,  0.5f, 0.0f},  // Top Left
+        {-0.5f, -0.5f, 0.0f},  // Bottom Left
     };
-    rect.vertices_size = 4 * sizeof(vec3);
-    rect.indices = (uint[]){
-        1, 0, 3,
-        3, 0, 2,
+    rect.mesh.num_indices = 6;
+    rect.mesh.indices = (uint[]){
+        0, 1, 3,
+        0, 3, 2
     };
-    rect.indices_size = 6 * sizeof(uint);
-    setup(&rect, false);
+    setup(&rect);
 
     /* Axes */
-    float width = 0.01f;
-
-    /* x-axis */
-    vec3 *vertices = (vec3[]){
-        {-1.0f, 0.0f, 0.0f},
-        { 1.0f, 0.0f, 0.0f},
-    };
-    Renderer xaxis;
+    GameObject xaxis;
     xaxis.vertex_shader_source = strdup(vertex_shader_source);
     xaxis.fragment_shader_source = strdup(fragment_shader_source);
-    xaxis.vertices = spline_vertices(2, vertices, width);
-    xaxis.vertices_size = 4 * sizeof(vec3);
-    xaxis.indices = spline_indices(2, vertices);
-    xaxis.indices_size = 6 * sizeof(uint);
-    setup(&xaxis, false);
-
-    /* Y-axis */
-    vertices = (vec3[]){
-        {0.0f, -1.0f, 0.0f},
-        {0.0f,  1.0f, 0.0f},
+    xaxis.mesh.num_vertices = 4;
+    xaxis.mesh.num_indices = 6;
+    xaxis.mesh.vertices = (vec3[]){
+        {-1.0, -0.01, 0.0},
+        {-1.0,  0.01, 0.0},
+        { 1.0,  0.01, 0.0},
+        { 1.0, -0.01, 0.0},
     };
-    Renderer yaxis;
+    xaxis.mesh.indices = (uint[]){
+        0, 1, 2, 2, 3, 0,
+    };
+    setup(&xaxis);
+
+    GameObject yaxis;
     yaxis.vertex_shader_source = strdup(vertex_shader_source);
     yaxis.fragment_shader_source = strdup(fragment_shader_source);
-    yaxis.vertices = spline_vertices(2, vertices, width);
-    yaxis.vertices_size = 4 * sizeof(vec3);
-    yaxis.indices = spline_indices(2, vertices);
-    yaxis.indices_size = 6 * sizeof(uint);
-    setup(&yaxis, false);
+    yaxis.mesh.num_vertices = 4;
+    yaxis.mesh.num_indices = 6;
+    yaxis.mesh.vertices = (vec3[]){
+        {-0.01, -1.0, 0.0},
+        { 0.01, -1.0, 0.0},
+        { 0.01,  1.0, 0.0},
+        {-0.01,  1.0, 0.0},
+    };
+    yaxis.mesh.indices = (uint[]){
+        0, 1, 2, 2, 3, 0,
+    };
+    setup(&yaxis);
 
     /* Plot */
-    size_t n = 1000;
-    vertices = (vec3 *) calloc(n, sizeof(vec3));
+    float width = 0.01f;
+
+    size_t n1 = 5;
+    vec3 vertices[] = {
+        {0.0, 0.0, 0.0},
+        {0.25, 0.0625, 0.0},
+        {0.50, 0.25, 0.0},
+        {0.75, 0.5625, 0.0},
+        {1.0, 1.0, 0.0},
+    };
+
+    // Create GameObject
+    GameObject plot1;
+    plot1.vertex_shader_source = strdup(vertex_shader_source);
+    plot1.fragment_shader_source = strdup(fragment_shader_source);
+    plot1.mesh = line(n1, vertices, width);
+    for (size_t i = 0; i < plot1.mesh.num_vertices; ++i)
+    {
+        print_vec3(&plot1.mesh.vertices[i]);
+        printf("\n");
+    }
+    for (size_t i = 0; i < plot1.mesh.num_indices; ++i)
+    {
+        printf("i = %d\n", plot1.mesh.indices[i]);
+    }
+    setup(&plot1);
+
+    /* Plot from file */
+    size_t n2 = 100;
+    vec3 *vertices2 = calloc(n2, sizeof(vec3));
     FILE *file;
     file = fopen("quad.csv", "r");
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < n2; ++i)
     {
-        vec3 *curr = &vertices[i];
-        fscanf(file, "%20f, %20f, %20f", &curr->x, &curr->y, &curr->z);
+        fscanf(file, "%f, %f, %f", &vertices2[i].x, &vertices2[i].y, &vertices2[i].z);
     }
-    // normalize(vertices);
 
-    Renderer plot;
-    plot.vertex_shader_source = strdup(vertex_shader_source);
-    plot.fragment_shader_source = strdup(fragment_shader_source);
-    plot.vertices = spline_vertices(n, vertices, width);
-    plot.vertices_size = 2 * n * sizeof(vec3);
-    plot.indices = spline_indices(n, vertices);
-    plot.indices_size = 6 * n * sizeof(uint);
-    setup(&plot, true);
+    GameObject plot2;
+    plot2.vertex_shader_source = strdup(vertex_shader_source);
+    plot2.fragment_shader_source = strdup(fragment_shader_source);
+    plot2.mesh = line_naive(n2, vertices2, width);
+    for (size_t i = 0; i < plot2.mesh.num_vertices; ++i)
+    {
+        printf("i: %i ", i);
+        print_vec3(&plot2.mesh.vertices[i]);
+        printf("\n");
+    }
+    // for (size_t i = 0; i < plot2.mesh.num_indices; ++i)
+    // {
+    //     printf("i = %d\n", plot2.mesh.indices[i]);
+    // }
+    setup(&plot2);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -402,7 +505,8 @@ int main(void)
         // draw(&rect);
         // draw(&xaxis);
         // draw(&yaxis);
-        draw(&plot);
+        // draw(&plot1);
+        draw(&plot2);
 
         // Check and call events and swap buffers
         glfwSwapBuffers(window);
@@ -412,11 +516,11 @@ int main(void)
     printf("Closing window\n");
 
     /* Delete stuff and terminate */
-    delete_gl_objects(&triangle);
-    delete_gl_objects(&rect);
-    delete_gl_objects(&xaxis);
-    delete_gl_objects(&yaxis);
-    delete_gl_objects(&plot);
+    delete_GameObject(&triangle);
+    // delete_GameObject(&rect);
+    // delete_GameObject(&xaxis);
+    // delete_GameObject(&yaxis);
+    // delete_GameObject(&plot1);
     glfwTerminate();
 
     return 0;

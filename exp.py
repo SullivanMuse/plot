@@ -2,8 +2,9 @@
 
 import numpy as np
 
-xs = np.linspace(-1, 1, 1000)
+xs = np.linspace(-1, 1, 100)
 ys = np.exp(xs)
+ys = ys / max(ys)
 
 with open("exp.csv", "w") as file:
     for x, y in zip(xs, ys):
